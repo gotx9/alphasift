@@ -1,0 +1,25 @@
+# 双低选股策略（低 PE + 低 PB）
+name: dual_low
+display_name: 双低选股
+description: 偏稳健的低估值筛选策略，适合价值投资者
+category: value
+
+screening:
+  enabled: true
+  market_scope: [cn]
+  hard_filters:
+    exclude_st: true
+    amount_min: 50000000
+    pe_ttm_max: 15
+    pb_max: 2.0
+    market_cap_min: 5000000000
+    market_cap_max: 300000000000
+    price_min: 3
+    price_max: 80
+  tech_weight: 0.2
+  ranking_hints: |
+    优先考虑：
+    1. 行业地位高、现金流质量好、分红稳定
+    2. 估值处于近三年低位
+    3. 无重大诉讼或监管风险
+  max_output: 5
