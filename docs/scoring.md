@@ -32,6 +32,11 @@ final_screen_score = snapshot_score × (1 - tech_weight)
 
 `signal_score` 可以作为 `tech_feature_score` 的输入之一，但不能直接等于 `screen_score`。
 
+当前实现中，DSA 不参与 L1 全市场初筛；它只在最终入围候选上调用，并在最后阶段作为 overlay 使用：
+- `screen_score` 仍决定进入最终名单前的主排序
+- DSA 返回的 `signal_score`、`sentiment_score`、`operation_advice`、趋势判断和风险因子会对最终 `final_score` 做修正
+- 因此 DSA 更适合作为低频、高成本的终审层，而不是高频主链评分器
+
 ## LLM 排序 (L2)
 
 LLM 只在 Top K 候选上做相对排序，输入为：

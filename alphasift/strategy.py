@@ -16,6 +16,9 @@ from alphasift.models import (
 logger = logging.getLogger(__name__)
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 _BUNDLED_STRATEGIES_DIR = Path(__file__).resolve().parent / "strategies"
+_TOP_LEVEL_KEYS = {"name", "display_name", "description", "category", "screening"}
+_SCREENING_KEYS = {"enabled", "market_scope", "hard_filters", "tech_weight", "ranking_hints", "max_output"}
+_HARD_FILTER_KEYS = set(HardFilterConfig.__dataclass_fields__.keys())
 
 
 def load_strategy(filepath: Path) -> Strategy:
@@ -26,12 +29,19 @@ def load_strategy(filepath: Path) -> Strategy:
     if not isinstance(data, dict):
         raise ValueError(f"Invalid strategy file: {filepath}")
 
-    screening_data = data.get("screening", {})
-    hf_data = screening_data.get("hard_filters", {})
+    _raise_unknown_keys(data, _TOP_LEVEL_KEYS, f"strategy file {filepath.name}")
 
-    hard_filters = HardFilterConfig(
-        **{k: v for k, v in hf_data.items() if hasattr(HardFilterConfig, k)}
-    )
+    screening_data = data.get("screening", {})
+    if not isinstance(screening_data, dict):
+        raise ValueError(f"Invalid screening section in strategy file: {filepath}")
+    _raise_unknown_keys(screening_data, _SCREENING_KEYS, f"screening section of {filepath.name}")
+
+    hf_data = screening_data.get("hard_filters", {})
+    if not isinstance(hf_data, dict):
+        raise ValueError(f"Invalid hard_filters section in strategy file: {filepath}")
+    _raise_unknown_keys(hf_data, _HARD_FILTER_KEYS, f"hard_filters section of {filepath.name}")
+
+    hard_filters = HardFilterConfig(**hf_data)
 
     screening = ScreeningConfig(
         enabled=screening_data.get("enabled", False),
@@ -89,7 +99,7 @@ def list_strategies(strategies_dir: Path | None = None) -> list[StrategyInfo]:
 
 
 def _validate_strategy_dir_sync(strategies_dir: Path) -> None:
-    """Fail fast if repo and bundled strategy mirrors drift apart."""
+    """Fail fast if bundled strategy mirrors drift apart from built-in repo files."""
     resolved = strategies_dir.resolve()
     repo_dir = (_PROJECT_ROOT / "strategies").resolve()
     bundled_dir = _BUNDLED_STRATEGIES_DIR.resolve()
@@ -98,15 +108,25 @@ def _validate_strategy_dir_sync(strategies_dir: Path) -> None:
 
     repo_files = {f.name: f for f in repo_dir.glob("*.yaml")}
     bundled_files = {f.name: f for f in bundled_dir.glob("*.yaml")}
-    if repo_files.keys() != bundled_files.keys():
+    missing_from_repo = bundled_files.keys() - repo_files.keys()
+    if missing_from_repo:
         raise RuntimeError(
-            "Strategy directories are out of sync: strategies/ and "
-            "alphasift/strategies must contain the same YAML files."
+            "Strategy directories are out of sync: bundled strategies are missing from "
+            f"strategies/: {', '.join(sorted(missing_from_repo))}."
         )
 
-    for name, repo_file in repo_files.items():
+    for name, bundled_file in bundled_files.items():
+        repo_file = repo_files[name]
         if repo_file.read_bytes() != bundled_files[name].read_bytes():
             raise RuntimeError(
                 "Strategy directories are out of sync: "
                 f"strategies/{name} does not match alphasift/strategies/{name}."
             )
+
+
+def _raise_unknown_keys(data: dict, allowed_keys: set[str], context: str) -> None:
+    unknown_keys = sorted(set(data.keys()) - allowed_keys)
+    if unknown_keys:
+        raise ValueError(
+            f"Unknown keys in {context}: {', '.join(unknown_keys)}"
+        )

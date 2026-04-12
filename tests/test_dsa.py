@@ -1,4 +1,5 @@
 from alphasift.dsa import (
+    apply_dsa_overlay,
     analyze_picks_with_dsa,
     build_dsa_analyze_url,
     extract_deep_analysis_summary,
@@ -15,17 +16,18 @@ def test_build_dsa_analyze_url_accepts_base_or_full_endpoint():
     )
 
 
-def test_extract_deep_analysis_summary_prefers_report_summary_operation_advice():
+def test_extract_deep_analysis_summary_prefers_analysis_summary_over_operation_advice():
     result = {
         "query_id": "q1",
         "report": {
             "summary": {
+                "analysis_summary": "这是更完整的分析摘要",
                 "operation_advice": "继续观察，等待更好的风险收益比"
             }
         },
     }
 
-    assert extract_deep_analysis_summary(result) == "继续观察，等待更好的风险收益比"
+    assert extract_deep_analysis_summary(result) == "这是更完整的分析摘要"
 
 
 def test_analyze_picks_with_dsa_attaches_results(monkeypatch):
@@ -53,4 +55,33 @@ def test_analyze_picks_with_dsa_attaches_results(monkeypatch):
     assert analyzed[0].deep_analysis_status == "completed"
     assert analyzed[0].deep_analysis_query_id == "query-600519"
     assert analyzed[0].deep_analysis_summary == "关注 600519"
+    assert analyzed[0].deep_analysis_operation_advice == "关注 600519"
     assert analyzed[1].deep_analysis_status == "skipped"
+
+
+def test_apply_dsa_overlay_uses_structured_scores_for_final_rerank():
+    picks = [
+        Pick(rank=1, code="AAA", name="A", final_score=80, screen_score=80),
+        Pick(rank=2, code="BBB", name="B", final_score=82, screen_score=82),
+    ]
+
+    picks[0].deep_analysis_status = "completed"
+    picks[0].deep_analysis_signal_score = 82
+    picks[0].deep_analysis_sentiment_score = 88
+    picks[0].deep_analysis_operation_advice = "买入"
+    picks[0].deep_analysis_trend_prediction = "看多"
+
+    picks[1].deep_analysis_status = "completed"
+    picks[1].deep_analysis_signal_score = 40
+    picks[1].deep_analysis_sentiment_score = 38
+    picks[1].deep_analysis_operation_advice = "观望"
+    picks[1].deep_analysis_trend_prediction = "震荡"
+    picks[1].deep_analysis_risk_flags = ["乖离率过高"]
+
+    reranked = apply_dsa_overlay(picks)
+
+    assert reranked[0].code == "AAA"
+    assert reranked[0].rank == 1
+    assert reranked[1].code == "BBB"
+    assert reranked[1].rank == 2
+    assert reranked[0].final_score > reranked[1].final_score

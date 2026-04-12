@@ -8,7 +8,7 @@ from pathlib import Path
 import pandas as pd
 
 from alphasift.config import Config
-from alphasift.dsa import analyze_picks_with_dsa
+from alphasift.dsa import analyze_picks_with_dsa, apply_dsa_overlay
 from alphasift.filter import apply_hard_filters
 from alphasift.models import Pick, ScreenResult
 from alphasift.ranker import rank_candidates
@@ -136,6 +136,7 @@ def screen(
             force_refresh=config.dsa_force_refresh,
             notify=config.dsa_notify,
         )
+        picks = apply_dsa_overlay(picks)
         degradation.extend(dsa_degradation)
 
     return ScreenResult(

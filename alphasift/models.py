@@ -80,6 +80,11 @@ class Pick:
     deep_analysis_summary: str = ""
     deep_analysis_error: str = ""
     deep_analysis_result: dict[str, Any] | None = None
+    deep_analysis_signal_score: int | None = None
+    deep_analysis_sentiment_score: int | None = None
+    deep_analysis_operation_advice: str = ""
+    deep_analysis_trend_prediction: str = ""
+    deep_analysis_risk_flags: list[str] = field(default_factory=list)
 
 
 @dataclass

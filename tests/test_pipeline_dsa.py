@@ -83,8 +83,13 @@ def test_screen_runs_optional_dsa_analysis(monkeypatch):
     monkeypatch.setattr("alphasift.pipeline.compute_screen_scores", lambda frame, cfg: frame)
 
     def fake_analyze(picks, **kwargs):
+        assert len(picks) == 2
         picks[0].deep_analysis_status = "completed"
         picks[0].deep_analysis_summary = "建议继续跟踪"
+        picks[0].deep_analysis_signal_score = 80
+        picks[0].deep_analysis_sentiment_score = 82
+        picks[0].deep_analysis_operation_advice = "买入"
+        picks[0].deep_analysis_trend_prediction = "看多"
         picks[1].deep_analysis_status = "skipped"
         return picks, []
 
@@ -95,3 +100,79 @@ def test_screen_runs_optional_dsa_analysis(monkeypatch):
     assert result.deep_analysis_requested is True
     assert result.picks[0].deep_analysis_status == "completed"
     assert result.picks[0].deep_analysis_summary == "建议继续跟踪"
+    assert result.picks[0].final_score > result.picks[0].screen_score
+
+
+def test_screen_uses_dsa_as_final_stage_overlay(monkeypatch):
+    df = pd.DataFrame(
+        [
+            {
+                "code": "AAA",
+                "name": "A",
+                "price": 10.0,
+                "change_pct": 1.0,
+                "amount": 200_000_000,
+                "total_mv": 10_000_000_000,
+                "pe_ratio": 10.0,
+                "pb_ratio": 1.0,
+                "screen_score": 80.0,
+            },
+            {
+                "code": "BBB",
+                "name": "B",
+                "price": 20.0,
+                "change_pct": 2.0,
+                "amount": 250_000_000,
+                "total_mv": 11_000_000_000,
+                "pe_ratio": 11.0,
+                "pb_ratio": 1.2,
+                "screen_score": 82.0,
+            },
+            {
+                "code": "CCC",
+                "name": "C",
+                "price": 18.0,
+                "change_pct": 0.5,
+                "amount": 180_000_000,
+                "total_mv": 9_000_000_000,
+                "pe_ratio": 12.0,
+                "pb_ratio": 1.3,
+                "screen_score": 78.0,
+            },
+        ]
+    )
+
+    monkeypatch.setattr("alphasift.pipeline.fetch_snapshot_with_fallback", lambda sources: df)
+    monkeypatch.setattr("alphasift.pipeline.apply_hard_filters", lambda frame, filters: frame)
+    monkeypatch.setattr("alphasift.pipeline.compute_screen_scores", lambda frame, cfg: frame)
+
+    def fake_analyze(picks, **kwargs):
+        assert [pick.code for pick in picks] == ["BBB", "AAA"]
+
+        picks[0].deep_analysis_status = "completed"
+        picks[0].deep_analysis_signal_score = 35
+        picks[0].deep_analysis_sentiment_score = 40
+        picks[0].deep_analysis_operation_advice = "观望"
+        picks[0].deep_analysis_trend_prediction = "震荡"
+        picks[0].deep_analysis_risk_flags = ["短线超买"]
+
+        picks[1].deep_analysis_status = "completed"
+        picks[1].deep_analysis_signal_score = 85
+        picks[1].deep_analysis_sentiment_score = 90
+        picks[1].deep_analysis_operation_advice = "买入"
+        picks[1].deep_analysis_trend_prediction = "看多"
+        return picks, []
+
+    monkeypatch.setattr("alphasift.pipeline.analyze_picks_with_dsa", fake_analyze)
+
+    result = screen(
+        "dual_low",
+        deep_analysis=True,
+        max_output=2,
+        deep_analysis_max_picks=2,
+        config=_make_config(),
+    )
+
+    assert [pick.code for pick in result.picks] == ["AAA", "BBB"]
+    assert result.picks[0].rank == 1
+    assert result.picks[1].rank == 2

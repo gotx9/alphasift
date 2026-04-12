@@ -86,6 +86,14 @@ alphasift/
 - **策略即 YAML**：所有选股逻辑通过 YAML 文件定义，不写死代码
 - **为 Agent 设计**：SKILL.md 描述能力和接口，任何支持 Skill 协议的 Agent 都能调用
 
+## 与 daily_stock_analysis 的关系
+
+- README、代码和环境变量中提到的 `DSA`，指的是外部单股深度分析服务 `daily_stock_analysis`
+- `alphasift` 负责全市场候选发现、硬筛、横向评分和候选排序
+- `daily_stock_analysis` 负责单只股票的深度分析，默认通过 `POST /api/v1/analysis/analyze` 提供服务
+- 两者通过 `DSA_API_URL` 解耦部署；`daily_stock_analysis` 不属于本仓库，但可以作为本仓库的 L3 分析后端
+- 为控制成本，`alphasift` 只会在最终入围候选上调用 DSA；DSA 返回的结构化结果会在最后阶段影响 `final_score`、风险判断和最终名次
+
 ## 数据源
 
 支持三种 A 股全市场快照数据源，自动按优先级降级：
@@ -114,9 +122,9 @@ alphasift/
 ## 已知限制
 
 - 当前版本不开放依赖日 K 线特征的策略；关键快照字段缺失时会直接失败，而不是静默跳过过滤条件
-- `deep_analysis` 依赖外部 DSA 服务，当前按同步 REST 请求逐只调用，适合作为可选增强而不是高并发主链
-- 评分基于快照横截面数据，不含趋势/技术分析的完整信号
-- 仓库内同时保留 `strategies/` 与 `alphasift/strategies/` 两份策略镜像用于开发态和安装态；启动时会校验二者是否一致，发现漂移将直接报错
+- `deep_analysis` 依赖外部 `daily_stock_analysis`/DSA 服务，当前按同步 REST 请求逐只调用，更适合最终名单的低频深度分析，而不是高并发主链
+- L1/L2 主评分仍以快照横截面数据为主；DSA 结果只在最终阶段做风险覆盖和分数修正，不参与全市场初筛
+- 仓库内同时保留 `strategies/` 与 `alphasift/strategies/` 两份策略镜像用于开发态和安装态；内置策略文件需保持一致，但 `strategies/` 允许新增自定义 YAML
 
 ## 实测记录
 
