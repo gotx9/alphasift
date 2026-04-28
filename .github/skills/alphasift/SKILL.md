@@ -30,6 +30,8 @@ L3 默认启用本地 `scorecard` 后置评分器，也可追加 `dsa` 或 `exte
 
 依赖日 K 的策略会在 L1 后自动对 Top N 候选做日 K 增强。
 
+如需 L3 深度分析，需要设置 `DSA_API_URL`。这里的 `DSA` 指外部项目 `daily_stock_analysis`，默认调用 `POST /api/v1/analysis/analyze`。
+
 ## Operations
 
 ### 1. 查看可用策略
@@ -95,6 +97,16 @@ evaluate_saved_runs(limit=20)
 - `source_errors`: 降级前失败的数据源错误
 
 每个 `Pick` 会包含 `factor_scores`、`industry/concepts/board_heat_score/board_heat_trend_score/board_heat_persistence_score/board_heat_cooling_score/board_heat_state/board_heat_summary`、LLM 输出的 thesis/理由/风险/催化/行业/主题/标签/风格匹配/跟踪项/失效条件、风险层字段、组合分散扣分字段，以及可选的后置分析字段。DSA 字段只在启用 `dsa` 分析器时填充。
+
+每个 `Pick` 还可能包含：
+- `deep_analysis_status`
+- `deep_analysis_summary`
+- `deep_analysis_result`
+- `deep_analysis_signal_score`
+- `deep_analysis_sentiment_score`
+- `deep_analysis_operation_advice`
+- `deep_analysis_trend_prediction`
+- `deep_analysis_risk_flags`
 
 ## Boundaries
 

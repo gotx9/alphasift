@@ -151,6 +151,11 @@ evaluate_saved_runs(limit=20)
 - `deep_analysis_status`
 - `deep_analysis_summary`
 - `deep_analysis_result`
+- `deep_analysis_signal_score`
+- `deep_analysis_sentiment_score`
+- `deep_analysis_operation_advice`
+- `deep_analysis_trend_prediction`
+- `deep_analysis_risk_flags`
 
 ## Boundaries
 
