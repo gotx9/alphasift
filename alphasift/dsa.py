@@ -13,6 +13,23 @@ from alphasift.models import Pick
 
 logger = logging.getLogger(__name__)
 _DEFAULT_ANALYZE_PATH = "/api/v1/analysis/analyze"
+_ADVICE_SCORE_MAP = {
+    "强烈买入": 10.0,
+    "买入": 8.0,
+    "增持": 5.0,
+    "持有": 1.5,
+    "中性": 0.0,
+    "观望": -4.0,
+    "减持": -8.0,
+    "卖出": -12.0,
+    "回避": -12.0,
+}
+_TREND_SCORE_MAP = {
+    "看多": 4.0,
+    "震荡": 0.0,
+    "中性": 0.0,
+    "看空": -6.0,
+}
 
 
 def analyze_picks_with_dsa(
@@ -56,6 +73,7 @@ def analyze_picks_with_dsa(
             pick.deep_analysis_query_id = str(result.get("query_id", ""))
             pick.deep_analysis_result = result
             pick.deep_analysis_summary = extract_deep_analysis_summary(result)
+            _attach_deep_analysis_fields(pick, result)
         except Exception as exc:
             logger.warning("DSA deep analysis failed for %s: %s", pick.code, exc)
             pick.deep_analysis_status = "failed"
@@ -128,7 +146,14 @@ def extract_deep_analysis_summary(result: dict) -> str:
         if isinstance(summary, str) and summary.strip():
             return summary.strip()
         if isinstance(summary, dict):
-            for key in ("operation_advice", "conclusion", "recommendation", "signal_level"):
+            for key in (
+                "analysis_summary",
+                "summary",
+                "conclusion",
+                "recommendation",
+                "operation_advice",
+                "signal_level",
+            ):
                 value = summary.get(key)
                 if isinstance(value, str) and value.strip():
                     return value.strip()
@@ -137,3 +162,95 @@ def extract_deep_analysis_summary(result: dict) -> str:
 
     rendered = json.dumps(result, ensure_ascii=False)
     return rendered[:280]
+
+
+def apply_dsa_overlay(picks: list[Pick]) -> list[Pick]:
+    """Use DSA structured output as the final low-frequency risk/alpha overlay."""
+    rescored: list[tuple[int, Pick]] = []
+    for idx, pick in enumerate(picks):
+        base_score = float(pick.final_score)
+        if pick.deep_analysis_status == "completed":
+            base_score += _compute_dsa_overlay_score(pick)
+        pick.final_score = round(base_score, 4)
+        rescored.append((idx, pick))
+
+    rescored.sort(key=lambda item: (-item[1].final_score, item[0]))
+    reranked = [pick for _, pick in rescored]
+    for i, pick in enumerate(reranked, start=1):
+        pick.rank = i
+    return reranked
+
+
+def _attach_deep_analysis_fields(pick: Pick, result: dict) -> None:
+    summary = _extract_report_summary(result)
+    trend = _extract_trend_result(result)
+
+    pick.deep_analysis_signal_score = _safe_int(trend.get("signal_score"))
+    pick.deep_analysis_sentiment_score = _safe_int(summary.get("sentiment_score"))
+    pick.deep_analysis_operation_advice = _safe_str(summary.get("operation_advice"))
+    pick.deep_analysis_trend_prediction = _safe_str(summary.get("trend_prediction"))
+    pick.deep_analysis_risk_flags = _extract_risk_flags(trend)
+
+
+def _compute_dsa_overlay_score(pick: Pick) -> float:
+    score = 0.0
+
+    if pick.deep_analysis_signal_score is not None:
+        score += (pick.deep_analysis_signal_score - 50) * 0.20
+    if pick.deep_analysis_sentiment_score is not None:
+        score += (pick.deep_analysis_sentiment_score - 50) * 0.12
+
+    advice = pick.deep_analysis_operation_advice.strip()
+    score += _ADVICE_SCORE_MAP.get(advice, 0.0)
+
+    trend = pick.deep_analysis_trend_prediction.strip()
+    score += _TREND_SCORE_MAP.get(trend, 0.0)
+
+    if pick.deep_analysis_risk_flags:
+        score -= min(len(pick.deep_analysis_risk_flags) * 2.0, 6.0)
+
+    return score
+
+
+def _extract_report_summary(result: dict) -> dict:
+    report = result.get("report")
+    if not isinstance(report, dict):
+        return {}
+    summary = report.get("summary")
+    return summary if isinstance(summary, dict) else {}
+
+
+def _extract_trend_result(result: dict) -> dict:
+    report = result.get("report")
+    if not isinstance(report, dict):
+        return {}
+    details = report.get("details")
+    if not isinstance(details, dict):
+        return {}
+    context_snapshot = details.get("context_snapshot")
+    if not isinstance(context_snapshot, dict):
+        return {}
+    trend = context_snapshot.get("trend_result")
+    return trend if isinstance(trend, dict) else {}
+
+
+def _extract_risk_flags(trend_result: dict) -> list[str]:
+    risks = trend_result.get("risk_factors")
+    if not isinstance(risks, list):
+        return []
+    return [str(item).strip() for item in risks if str(item).strip()]
+
+
+def _safe_int(value) -> int | None:
+    try:
+        if value is None or value == "":
+            return None
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _safe_str(value) -> str:
+    if value is None:
+        return ""
+    return str(value).strip()

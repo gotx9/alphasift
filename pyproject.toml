@@ -4,12 +4,12 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "alphasift"
-version = "0.1.0"
+version = "0.2.0"
 description = "自动选股 Skill — 从全市场中按策略筛选、评分、排序候选股票"
 readme = "README.md"
 license = "Apache-2.0"
 license-files = ["LICENSE"]
-requires-python = ">=3.11"
+requires-python = ">=3.10"
 dependencies = [
     "pandas>=2.0",
     "pyyaml>=6.0",

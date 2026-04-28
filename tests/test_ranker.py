@@ -1,0 +1,193 @@
+import json
+
+from alphasift.models import Pick
+from alphasift.ranker import (
+    _build_litellm_attempts,
+    _build_ranking_prompt,
+    _parse_ranking_response,
+    _parse_ranking_response_detail,
+    rank_candidates,
+)
+
+
+def test_parse_structured_llm_ranking_attaches_insight_fields():
+    picks = [
+        Pick(rank=1, code="000001", name="平安银行", final_score=70, screen_score=70),
+        Pick(rank=2, code="600000", name="浦发银行", final_score=68, screen_score=68),
+    ]
+    response = json.dumps(
+        {
+            "ranked": [
+                {
+                    "code": "600000",
+                    "llm_score": 88,
+                    "confidence": 0.72,
+                    "sector": "银行",
+                    "theme": "低估值修复",
+                    "reason": "估值与修复弹性更匹配策略",
+                    "risk": "银行板块整体弹性有限",
+                    "catalysts": ["低估值修复"],
+                    "risk_flags": ["板块贝塔弱"],
+                    "invalidators": ["地产链继续走弱"],
+                    "tags": ["价值", "修复"],
+                    "style_fit": "低估值修复",
+                }
+            ]
+        },
+        ensure_ascii=False,
+    )
+
+    ranked = _parse_ranking_response(response, picks)
+
+    assert ranked[0].code == "600000"
+    assert ranked[0].llm_score == 88
+    assert ranked[0].llm_confidence == 0.72
+    assert ranked[0].llm_sector == "银行"
+    assert ranked[0].llm_theme == "低估值修复"
+    assert ranked[0].llm_catalysts == ["低估值修复"]
+    assert ranked[0].llm_risks == ["板块贝塔弱"]
+    assert ranked[0].llm_invalidators == ["地产链继续走弱"]
+    assert ranked[0].llm_style_fit == "低估值修复"
+    assert ranked[0].llm_tags == [
+        "价值",
+        "修复",
+        "sector:银行",
+        "theme:低估值修复",
+        "style_fit:低估值修复",
+    ]
+    assert ranked[1].code == "000001"
+
+
+def test_parse_llm_ranking_normalizes_suffixed_codes():
+    picks = [
+        Pick(rank=1, code="SZ000001", name="平安银行", final_score=70, screen_score=70),
+    ]
+    response = json.dumps({"ranked": [{"code": "000001", "llm_score": 88}]})
+
+    result = _parse_ranking_response_detail(response, picks)
+
+    assert result.coverage == 1.0
+    assert result.picks[0].llm_score == 88
+
+
+def test_parse_llm_ranking_attaches_global_research_metadata():
+    picks = [
+        Pick(rank=1, code="000001", name="平安银行", final_score=70, screen_score=70),
+    ]
+    response = json.dumps(
+        {
+            "market_view": "候选池偏低估值修复，适合防守反击",
+            "selection_logic": "优先低估值、稳定性和催化可解释性",
+            "portfolio_risk": "银行板块集中度较高",
+            "ranked": [
+                {
+                    "code": "000001",
+                    "llm_score": 80,
+                    "thesis": "估值低且修复逻辑清晰",
+                    "reason": "低估值修复",
+                    "risk": "板块弹性有限",
+                    "watch_items": ["成交额能否延续"],
+                }
+            ],
+        },
+        ensure_ascii=False,
+    )
+
+    result = _parse_ranking_response_detail(response, picks)
+
+    assert result.market_view == "候选池偏低估值修复，适合防守反击"
+    assert result.selection_logic == "优先低估值、稳定性和催化可解释性"
+    assert result.portfolio_risk == "银行板块集中度较高"
+    assert result.picks[0].llm_thesis == "估值低且修复逻辑清晰"
+    assert result.picks[0].llm_watch_items == ["成交额能否延续"]
+
+
+def test_rank_candidates_blends_screen_and_llm_scores(monkeypatch):
+    picks = [
+        Pick(rank=1, code="000001", name="平安银行", final_score=80, screen_score=80),
+        Pick(rank=2, code="600000", name="浦发银行", final_score=70, screen_score=70),
+    ]
+
+    def fake_call(prompt, api_key, model, base_url, **kwargs):
+        return json.dumps(
+            {
+                "ranked": [
+                    {"code": "600000", "llm_score": 95, "reason": "更强", "risk": "波动"},
+                    {"code": "000001", "llm_score": 60, "reason": "较弱", "risk": "催化不足"},
+                ]
+            }
+        )
+
+    monkeypatch.setattr("alphasift.ranker._call_llm", fake_call)
+
+    ranked = rank_candidates(
+        picks,
+        ranking_hints="demo",
+        llm_api_key="key",
+        llm_model="model",
+        rank_weight=0.4,
+    )
+
+    assert [p.code for p in ranked] == ["600000", "000001"]
+    assert ranked[0].final_score == 80.0
+    assert ranked[1].final_score == 72.0
+
+
+def test_build_litellm_attempts_uses_matching_channel_keys():
+    attempts = _build_litellm_attempts(
+        "openai/deepseek-chat",
+        api_key="fallback-key",
+        base_url="https://fallback.example/v1",
+        channels=[
+            {
+                "name": "primary",
+                "protocol": "openai",
+                "base_url": "https://api.deepseek.com/v1",
+                "api_keys": ["key1", "key2"],
+                "models": ["deepseek-chat"],
+                "enabled": True,
+            }
+        ],
+    )
+
+    assert attempts[0]["api_key"] == "key1"
+    assert attempts[0]["api_base"] == "https://api.deepseek.com/v1"
+    assert attempts[1]["api_key"] == "key2"
+    assert attempts[-1]["api_key"] == "fallback-key"
+
+
+def test_ranking_prompt_includes_structured_industry_context():
+    prompt = _build_ranking_prompt(
+        [
+            Pick(
+                rank=1,
+                code="000001",
+                name="平安银行",
+                final_score=70,
+                screen_score=70,
+                industry="银行",
+                concepts="低估值,中特估",
+                industry_rank=3,
+                industry_change_pct=1.2,
+                board_heat_score=72.5,
+                board_heat_summary="银行:+1.20%:rank=3",
+                breakout_20d_pct=0.8,
+                range_20d_pct=18.0,
+                volume_ratio_20d=1.8,
+                body_pct=1.2,
+                pullback_to_ma20_pct=4.0,
+                consolidation_days_20d=10,
+            )
+        ],
+        hints="demo",
+    )
+
+    assert "industry=银行" in prompt
+    assert "concepts=低估值,中特估" in prompt
+    assert "industry_rank=3" in prompt
+    assert "board_heat_score=72.5" in prompt
+    assert "银行:+1.20%" in prompt
+    assert "breakout_20d_pct=0.8" in prompt
+    assert "volume_ratio_20d=1.8" in prompt
+    assert "consolidation_days_20d=10" in prompt
+    assert "优先参考候选的 industry/concepts" in prompt

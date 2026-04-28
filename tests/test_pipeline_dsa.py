@@ -82,13 +82,14 @@ def test_screen_runs_optional_dsa_analysis(monkeypatch):
     monkeypatch.setattr("alphasift.pipeline.apply_hard_filters", lambda frame, filters: frame)
     monkeypatch.setattr("alphasift.pipeline.compute_screen_scores", lambda frame, cfg: frame)
 
-    def fake_analyze(picks, **kwargs):
+    def fake_post_analyze(picks, **kwargs):
+        assert kwargs["analyzer_names"] == ["scorecard", "dsa"]
         picks[0].deep_analysis_status = "completed"
         picks[0].deep_analysis_summary = "建议继续跟踪"
         picks[1].deep_analysis_status = "skipped"
         return picks, []
 
-    monkeypatch.setattr("alphasift.pipeline.analyze_picks_with_dsa", fake_analyze)
+    monkeypatch.setattr("alphasift.pipeline.run_post_analyzers", fake_post_analyze)
 
     result = screen("dual_low", deep_analysis=True, config=_make_config())
 

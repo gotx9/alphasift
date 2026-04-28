@@ -38,8 +38,10 @@ def fetch_snapshot_with_fallback(sources: list[str]) -> pd.DataFrame:
         try:
             df = fetch_cn_snapshot(source)
             if not df.empty:
+                df.attrs["source_errors"] = list(errors)
                 logger.info("Snapshot fetched from %s: %d rows", source, len(df))
                 return df
+            errors.append(f"{source}: returned empty data")
         except Exception as e:
             errors.append(f"{source}: {e}")
             logger.warning("Snapshot source %s failed: %s", source, e)
@@ -139,6 +141,8 @@ def _normalize(df: pd.DataFrame, source: str) -> pd.DataFrame:
             "pb_ratio": ["市净率"],
             "volume_ratio": ["量比"],
             "turnover_rate": ["换手率"],
+            "industry": ["行业", "所属行业", "行业板块"],
+            "concepts": ["概念", "概念题材", "题材"],
         }
     elif source == "akshare_em":
         standard_cols = {
@@ -153,6 +157,8 @@ def _normalize(df: pd.DataFrame, source: str) -> pd.DataFrame:
             "pb_ratio": ["市净率"],
             "volume_ratio": ["量比"],
             "turnover_rate": ["换手率"],
+            "industry": ["行业", "所属行业", "行业板块"],
+            "concepts": ["概念", "概念题材", "题材"],
         }
     elif source == "em_datacenter":
         standard_cols = {
@@ -167,6 +173,8 @@ def _normalize(df: pd.DataFrame, source: str) -> pd.DataFrame:
             "pb_ratio": ["PBNEWMRQ"],
             "volume_ratio": ["VOLUME_RATIO"],
             "turnover_rate": ["TURNOVERRATE"],
+            "industry": ["INDUSTRY", "INDUSTRY_NAME", "BOARD_NAME"],
+            "concepts": ["CONCEPT", "CONCEPT_NAME", "THEME_NAME"],
         }
     else:
         standard_cols = {}
